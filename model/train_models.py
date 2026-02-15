@@ -44,12 +44,10 @@ except ImportError:
 
 # ---------------- File Utilities ----------------
 def create_required_folders():
-    """Create folders required for saving trained models."""
     Path("model/saved_models").mkdir(parents=True, exist_ok=True)
 
 
 def persist_model(trained_model, filename="best_income_model.pkl"):
-    """Save the trained model to disk."""
     create_required_folders()
     path = Path("model/saved_models") / filename
     joblib.dump(trained_model, path)
@@ -66,15 +64,10 @@ class ModelEvaluation:
 
 # ---------------- Dataset Loader ----------------
 def prepare_adult_income_data() -> Tuple[pd.DataFrame, pd.Series]:
-    """
-    Loads the Adult Income dataset from OpenML and prepares it
-    for supervised learning.
-    """
     dataset = fetch_openml(name="adult", version=2, as_frame=True)
     df = dataset.frame.copy()
 
     df.rename(columns={"class": "income_level"}, inplace=True)
-
     df.replace("?", pd.NA, inplace=True)
     df.dropna(inplace=True)
 
@@ -91,9 +84,6 @@ def prepare_adult_income_data() -> Tuple[pd.DataFrame, pd.Series]:
 
 # ---------------- Preprocessing ----------------
 def build_feature_processor(features: pd.DataFrame) -> ColumnTransformer:
-    """
-    Builds preprocessing logic for numeric and categorical features.
-    """
     numeric_cols = features.select_dtypes(include=["int64", "float64"]).columns
     categorical_cols = features.select_dtypes(include=["object", "category"]).columns
 
@@ -107,11 +97,6 @@ def build_feature_processor(features: pd.DataFrame) -> ColumnTransformer:
 
 # ---------------- Model Factory ----------------
 def define_models(preprocessor: ColumnTransformer):
-    """
-    Defines all 6 required ML models.
-    XGBoost is conditionally used with Gradient Boosting fallback.
-    """
-
     models = {
         "Logistic Regression": Pipeline([
             ("prep", preprocessor),
@@ -147,7 +132,6 @@ def define_models(preprocessor: ColumnTransformer):
         ])
     }
 
-    # --- 6th Model: Boosted Ensemble ---
     if HAS_XGB:
         models["XGBoost"] = Pipeline([
             ("prep", preprocessor),
@@ -172,9 +156,6 @@ def define_models(preprocessor: ColumnTransformer):
 
 # ---------------- Evaluation ----------------
 def assess_model(pipeline: Pipeline, X_test, y_test) -> ModelEvaluation:
-    """
-    Evaluates a trained pipeline.
-    """
     transformer = pipeline.named_steps["prep"]
     classifier = pipeline.named_steps["model"]
 
@@ -202,10 +183,6 @@ def assess_model(pipeline: Pipeline, X_test, y_test) -> ModelEvaluation:
 
 # ---------------- Training Pipeline ----------------
 def execute_training_pipeline(test_fraction=0.25, seed=21):
-    """
-    Complete ML workflow:
-    load → preprocess → train → evaluate
-    """
     X, y = prepare_adult_income_data()
     processor = build_feature_processor(X)
 
@@ -228,3 +205,27 @@ def execute_training_pipeline(test_fraction=0.25, seed=21):
         trained_models[name] = pipeline
 
     return evaluation_results, trained_models
+
+
+# ---------------- PRINT OUTPUTS (For Jupyter / README) ----------------
+if __name__ == "__main__":
+    print("\nRunning Adult Income Classification Experiment")
+    print("=" * 60)
+
+    results, _ = execute_training_pipeline()
+
+    for model_name, evaluation in results.items():
+        print(f"\nModel: {model_name}")
+        print("-" * 60)
+
+        print("Metrics:")
+        for metric, value in evaluation.scores.items():
+            print(f"  {metric}: {value:.4f}")
+
+        print("\nConfusion Matrix:")
+        print(evaluation.confusion)
+
+        print("\nClassification Report:")
+        print(evaluation.report)
+
+    print("\nExperiment completed successfully.")
