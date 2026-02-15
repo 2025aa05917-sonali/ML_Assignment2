@@ -2,23 +2,14 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from sklearn.metrics import (
-    accuracy_score,
-    precision_score,
-    recall_score,
-    f1_score,
-    classification_report,
-    ConfusionMatrixDisplay
-)
-
-from model.train_models import run_experiment
+from sklearn.metrics import ConfusionMatrixDisplay
+from model.train_models import execute_training_pipeline
 
 # -----------------------------
 # Page setup
 # -----------------------------
 st.set_page_config(page_title="ML Assignment 2", layout="wide")
-
-st.title("Machine Learning Model Evaluation")
+st.title("Adult Income Classification")
 
 # -----------------------------
 # Sidebar inputs
@@ -26,39 +17,39 @@ st.title("Machine Learning Model Evaluation")
 st.sidebar.header("Settings")
 
 test_size = st.sidebar.slider(
-    "Test data size",
-    0.1, 0.5, 0.2, 0.05
+    "Test data fraction",
+    0.1, 0.5, 0.25, 0.05
 )
 
 seed = st.sidebar.number_input(
     "Random seed",
-    value=42
+    value=21
 )
 
 # -----------------------------
 # Dataset upload
 # -----------------------------
-st.header("Upload Test Dataset")
+st.header("Upload Test Dataset (Optional)")
 
 uploaded_file = st.file_uploader(
-    "Upload CSV file (only test data)",
+    "Upload CSV file (for viewing only)",
     type=["csv"]
 )
 
 if uploaded_file is not None:
-    test_df = pd.read_csv(uploaded_file)
+    uploaded_df = pd.read_csv(uploaded_file)
     st.write("Uploaded dataset preview:")
-    st.dataframe(test_df.head())
+    st.dataframe(uploaded_df.head())
 else:
-    st.write("No file uploaded. Using default test split.")
+    st.write("No dataset uploaded. Using default Adult Income dataset.")
 
 # -----------------------------
-# Run models
+# Run training pipeline
 # -----------------------------
-st.header("Run Experiment")
+st.header("Model Training and Evaluation")
 
-cols, results, trained_models, (X_test, y_test) = run_experiment(
-    test_size=test_size,
+evaluation_results, trained_models = execute_training_pipeline(
+    test_fraction=test_size,
     seed=seed
 )
 
@@ -72,37 +63,32 @@ model_name = st.selectbox(
     list(trained_models.keys())
 )
 
-model = trained_models[model_name]
+selected_eval = evaluation_results[model_name]
+selected_model = trained_models[model_name]
 
 # -----------------------------
-# Predictions
-# -----------------------------
-y_pred = model.predict(X_test)
-
-# -----------------------------
-# Metrics
+# Display metrics
 # -----------------------------
 st.header("Evaluation Metrics")
 
-st.write("Accuracy:", round(accuracy_score(y_test, y_pred), 3))
-st.write("Precision:", round(precision_score(y_test, y_pred), 3))
-st.write("Recall:", round(recall_score(y_test, y_pred), 3))
-st.write("F1 Score:", round(f1_score(y_test, y_pred), 3))
+for metric, value in selected_eval.scores.items():
+    st.write(f"{metric}: {value:.3f}")
 
 # -----------------------------
-# Confusion Matrix
+# Confusion matrix
 # -----------------------------
 st.header("Confusion Matrix")
 
 fig, ax = plt.subplots()
-ConfusionMatrixDisplay.from_predictions(
-    y_test, y_pred, ax=ax
-)
+ConfusionMatrixDisplay(
+    confusion_matrix=selected_eval.confusion
+).plot(ax=ax)
+
 st.pyplot(fig)
 
 # -----------------------------
-# Classification Report
+# Classification report
 # -----------------------------
 st.header("Classification Report")
 
-st.text(classification_report(y_test, y_pred))
+st.text(selected_eval.report)
