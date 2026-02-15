@@ -30,17 +30,9 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 
-# Optional XGBoost
-try:
-    from xgboost import XGBClassifier
-    _HAS_XGB = True
-except Exception:
-    _HAS_XGB = False
-
 
 # ---------------- Utility ----------------
 def ensure_dirs():
-    Path("data").mkdir(exist_ok=True)
     Path("model/saved").mkdir(parents=True, exist_ok=True)
 
 
@@ -50,7 +42,7 @@ def save_model(model, path="model/saved/best_model.pkl"):
     return path
 
 
-# ---------------- Evaluation container ----------------
+# ---------------- Result container ----------------
 @dataclass
 class EvaluationResult:
     metrics: Dict[str, float]
@@ -58,101 +50,77 @@ class EvaluationResult:
     report: str
 
 
-# ---------------- Load Adult Dataset ----------------
-def load_dataset() -> Tuple[pd.DataFrame, pd.Series]:
+# ---------------- Load Dataset ----------------
+def load_dataset():
     adult = fetch_openml(name="adult", version=2, as_frame=True)
     df = adult.frame.copy()
 
-    # Rename target
     df.rename(columns={"class": "income"}, inplace=True)
-
-    # Handle missing values
     df.replace("?", pd.NA, inplace=True)
     df.dropna(inplace=True)
 
-    df["income"] = df["income"].map({
-        "<=50K": 0,
-        ">50K": 1
-    })
-
-    if df["income"].isna().any():
-        raise ValueError("Unexpected income labels found")
+    df["income"] = df["income"].map({"<=50K": 0, ">50K": 1}).astype(int)
 
     X = df.drop("income", axis=1)
-    y = df["income"].astype(int)
+    y = df["income"]
 
     return X, y
 
 
-# ---------------- Preprocessing (FINAL FIX) ----------------
-def build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
-    numeric_features = X.select_dtypes(include=["int64", "float64"]).columns
-    categorical_features = X.select_dtypes(include=["object", "category"]).columns
+# ---------------- Preprocessing ----------------
+def build_preprocessor(X: pd.DataFrame):
+    num_cols = X.select_dtypes(include=["int64", "float64"]).columns
+    cat_cols = X.select_dtypes(include=["object", "category"]).columns
 
-    return ColumnTransformer(
-        transformers=[
-            ("num", StandardScaler(), numeric_features),
-            ("cat", OneHotEncoder(
-                handle_unknown="ignore",
-                sparse_output=False
-            ), categorical_features),
-        ]
-    )
+    return ColumnTransformer([
+        ("num", StandardScaler(), num_cols),
+        ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), cat_cols),
+    ])
 
 
 # ---------------- Models ----------------
-def get_models(preprocessor) -> Dict[str, Any]:
-    models = {
+def get_models(preprocessor):
+    return {
         "Logistic Regression": Pipeline([
             ("preprocess", preprocessor),
             ("clf", LogisticRegression(max_iter=1000))
         ]),
-
         "Decision Tree": Pipeline([
             ("preprocess", preprocessor),
             ("clf", DecisionTreeClassifier(random_state=42))
         ]),
-
         "kNN": Pipeline([
             ("preprocess", preprocessor),
             ("clf", KNeighborsClassifier(n_neighbors=7))
         ]),
-
         "Naive Bayes": Pipeline([
             ("preprocess", preprocessor),
             ("clf", GaussianNB())
         ]),
-
         "Random Forest": Pipeline([
             ("preprocess", preprocessor),
-            ("clf", RandomForestClassifier(
-                n_estimators=200,
-                random_state=42
-            ))
-        ])
-    }
-
-    if _HAS_XGB:
-        models["XGBoost"] = Pipeline([
-            ("preprocess", preprocessor),
-            ("clf", XGBClassifier(
-                eval_metric="logloss",
-                random_state=42,
-                use_label_encoder=False
-            ))
-        ])
-    else:
-        models["Gradient Boosting"] = Pipeline([
+            ("clf", RandomForestClassifier(n_estimators=200, random_state=42))
+        ]),
+        "Gradient Boosting": Pipeline([
             ("preprocess", preprocessor),
             ("clf", GradientBoostingClassifier(random_state=42))
-        ])
-
-    return models
+        ]),
+    }
 
 
 # ---------------- Evaluation ----------------
-def evaluate_model(model, X_test, y_test) -> EvaluationResult:
-    y_pred = model.predict(X_test)
+def evaluate_model(model: Pipeline, X_test, y_test) -> EvaluationResult:
+    """
+    IMPORTANT:
+    We DO NOT call model.predict(X_test)
+    This avoids sklearn __sklearn_tags__ crash in Python 3.12
+    """
+
+    preprocess = model.named_steps["preprocess"]
+    clf = model.named_steps["clf"]
+
+    X_test_transformed = preprocess.transform(X_test)
+    y_pred = clf.predict(X_test_transformed)
 
     metrics = {
         "Accuracy": accuracy_score(y_test, y_pred),
@@ -162,12 +130,11 @@ def evaluate_model(model, X_test, y_test) -> EvaluationResult:
         "MCC": matthews_corrcoef(y_test, y_pred),
     }
 
-    try:
+    if hasattr(clf, "predict_proba"):
         metrics["AUC"] = roc_auc_score(
-            y_test,
-            model.predict_proba(X_test)[:, 1]
+            y_test, clf.predict_proba(X_test_transformed)[:, 1]
         )
-    except Exception:
+    else:
         metrics["AUC"] = np.nan
 
     conf = confusion_matrix(y_test, y_pred)
@@ -182,8 +149,7 @@ def run_experiment(test_size=0.2, random_state=42):
     preprocessor = build_preprocessor(X)
 
     X_train, X_test, y_train, y_test = train_test_split(
-        X,
-        y,
+        X, y,
         test_size=test_size,
         random_state=random_state,
         stratify=y
