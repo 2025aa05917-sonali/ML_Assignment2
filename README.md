@@ -93,7 +93,3 @@ XGBoost (Ensemble):
 XGBoost delivers the best overall performance across most evaluation metrics.
 It effectively captures complex patterns in the data and provides the highest
 accuracy, AUC, and F1 score among all models tested.
-
---------------------------------------------------
-End of README
---------------------------------------------------
