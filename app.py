@@ -5,7 +5,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import streamlit as st
 
-from model.train_and_evaluate import (
+from model.train_models import (
     run_experiment, load_dataset, evaluate_model,
     ensure_dirs, save_model
 )
