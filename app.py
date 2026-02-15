@@ -1,46 +1,108 @@
 import streamlit as st
-from model.train_models import (
-    execute_training_pipeline,
-    persist_model
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    classification_report,
+    ConfusionMatrixDisplay
 )
 
-st.set_page_config(page_title="Income Prediction System", layout="wide")
+from model.train_models import run_experiment
 
-st.title("Adult Income Classification System")
-st.markdown(
-    """
-    This application evaluates multiple machine learning models
-    to predict whether an individual's income exceeds $50K/year
-    based on demographic and employment attributes.
-    """
+# -----------------------------
+# Page setup
+# -----------------------------
+st.set_page_config(page_title="ML Assignment 2", layout="wide")
+
+st.title("Machine Learning Model Evaluation")
+
+# -----------------------------
+# Sidebar inputs
+# -----------------------------
+st.sidebar.header("Settings")
+
+test_size = st.sidebar.slider(
+    "Test data size",
+    0.1, 0.5, 0.2, 0.05
 )
 
-st.sidebar.header("Experiment Settings")
-test_fraction = st.sidebar.slider("Test Data Percentage", 0.15, 0.35, 0.25)
-random_seed = st.sidebar.number_input("Random Seed", value=21)
-
-st.info("Training models with selected parameters…")
-
-results, trained_models = execute_training_pipeline(
-    test_fraction=test_fraction,
-    seed=random_seed
+seed = st.sidebar.number_input(
+    "Random seed",
+    value=42
 )
 
-st.success("Model training completed successfully!")
+# -----------------------------
+# Dataset upload
+# -----------------------------
+st.header("Upload Test Dataset")
 
-st.header("Model Performance Comparison")
+uploaded_file = st.file_uploader(
+    "Upload CSV file (only test data)",
+    type=["csv"]
+)
 
-best_model = None
-best_accuracy = 0
+if uploaded_file is not None:
+    test_df = pd.read_csv(uploaded_file)
+    st.write("Uploaded dataset preview:")
+    st.dataframe(test_df.head())
+else:
+    st.write("No file uploaded. Using default test split.")
 
-for model_name, evaluation in results.items():
-    st.subheader(model_name)
-    st.json(evaluation.scores)
+# -----------------------------
+# Run models
+# -----------------------------
+st.header("Run Experiment")
 
-    if evaluation.scores["Accuracy"] > best_accuracy:
-        best_accuracy = evaluation.scores["Accuracy"]
-        best_model = trained_models[model_name]
+cols, results, trained_models, (X_test, y_test) = run_experiment(
+    test_size=test_size,
+    seed=seed
+)
 
-if best_model:
-    saved_path = persist_model(best_model)
-    st.success(f"Best model saved at: `{saved_path}`")
+# -----------------------------
+# Model selection
+# -----------------------------
+st.header("Select Model")
+
+model_name = st.selectbox(
+    "Choose a model",
+    list(trained_models.keys())
+)
+
+model = trained_models[model_name]
+
+# -----------------------------
+# Predictions
+# -----------------------------
+y_pred = model.predict(X_test)
+
+# -----------------------------
+# Metrics
+# -----------------------------
+st.header("Evaluation Metrics")
+
+st.write("Accuracy:", round(accuracy_score(y_test, y_pred), 3))
+st.write("Precision:", round(precision_score(y_test, y_pred), 3))
+st.write("Recall:", round(recall_score(y_test, y_pred), 3))
+st.write("F1 Score:", round(f1_score(y_test, y_pred), 3))
+
+# -----------------------------
+# Confusion Matrix
+# -----------------------------
+st.header("Confusion Matrix")
+
+fig, ax = plt.subplots()
+ConfusionMatrixDisplay.from_predictions(
+    y_test, y_pred, ax=ax
+)
+st.pyplot(fig)
+
+# -----------------------------
+# Classification Report
+# -----------------------------
+st.header("Classification Report")
+
+st.text(classification_report(y_test, y_pred))
