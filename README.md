@@ -61,6 +61,8 @@ Naive Bayes                  0.5874     0.8152  0.3684      0.9308   0.5279
 Random Forest (Ensemble)     0.8589     0.9133  0.7911      0.5853   0.6728
 XGBoost (Ensemble)           0.8683     0.9253  0.7866      0.6431   0.7076
 
+<img width="1215" height="489" alt="Screenshot 2026-02-15 153621" src="https://github.com/user-attachments/assets/9eab4c63-9323-4626-a7c1-532326114756" />
+
 --------------------------------------------------
 d. Observations on Model Performance
 --------------------------------------------------
