@@ -1,61 +1,46 @@
-import os
-import pandas as pd
-import numpy as np
-import seaborn as sns
-import matplotlib.pyplot as plt
 import streamlit as st
-
 from model.train_models import (
-    run_experiment, load_dataset, evaluate_model,
-    ensure_dirs, save_model
+    execute_training_pipeline,
+    persist_model
 )
 
-st.set_page_config(page_title="Adult Income Classification", layout="wide")
-st.title("Adult Income Classification – ML Assignment")
+st.set_page_config(page_title="Income Prediction System", layout="wide")
 
+st.title("Adult Income Classification System")
 st.markdown(
-    "This application trains multiple ML models on the **Adult Income dataset** "
-    "loaded dynamically via **OpenML**, compares performance, and allows prediction."
+    """
+    This application evaluates multiple machine learning models
+    to predict whether an individual's income exceeds $50K/year
+    based on demographic and employment attributes.
+    """
 )
 
-# Sidebar
-st.sidebar.header("Configuration")
-test_size = st.sidebar.slider("Test Size", 0.1, 0.4, 0.2, 0.05)
-seed = st.sidebar.number_input("Random Seed", value=42)
+st.sidebar.header("Experiment Settings")
+test_fraction = st.sidebar.slider("Test Data Percentage", 0.15, 0.35, 0.25)
+random_seed = st.sidebar.number_input("Random Seed", value=21)
 
-# Load data preview
-X, y = load_dataset()
-st.subheader("Dataset Preview")
-st.dataframe(X.head())
-st.caption(f"Samples: {X.shape[0]} | Features: {X.shape[1]}")
+st.info("Training models with selected parameters…")
 
-# Train models
-cols, results, fitted, (X_test, y_test) = run_experiment(test_size, seed)
+results, trained_models = execute_training_pipeline(
+    test_fraction=test_fraction,
+    seed=random_seed
+)
 
-# Metrics table
-st.subheader("Model Comparison")
-rows = []
-for name, res in results.items():
-    row = {"Model": name}
-    row.update(res.metrics)
-    rows.append(row)
+st.success("Model training completed successfully!")
 
-df = pd.DataFrame(rows)
-st.dataframe(df)
+st.header("Model Performance Comparison")
 
-# Best model
-best_model_name = df.sort_values("AUC", ascending=False).iloc[0]["Model"]
-st.success(f"Best Model (by AUC): {best_model_name}")
+best_model = None
+best_accuracy = 0
 
-# Confusion Matrix
-res = results[best_model_name]
-fig, ax = plt.subplots()
-sns.heatmap(res.confusion, annot=True, fmt="d", cmap="Blues", ax=ax)
-st.pyplot(fig)
+for model_name, evaluation in results.items():
+    st.subheader(model_name)
+    st.json(evaluation.scores)
 
-st.text(res.report)
+    if evaluation.scores["Accuracy"] > best_accuracy:
+        best_accuracy = evaluation.scores["Accuracy"]
+        best_model = trained_models[model_name]
 
-# Save model
-ensure_dirs()
-save_model(fitted[best_model_name])
-st.sidebar.success("Best model saved as best_model.pkl")
+if best_model:
+    saved_path = persist_model(best_model)
+    st.success(f"Best model saved at: `{saved_path}`")
