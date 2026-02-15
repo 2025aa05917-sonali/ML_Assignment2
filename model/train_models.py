@@ -23,6 +23,7 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.preprocessing import FunctionTransformer
 
 # Optional XGBoost
 try:
@@ -94,7 +95,7 @@ def build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
 
 
 # ---------------- Models ----------------
-def get_models(preprocessor) -> Dict[str, Any]:
+def get_models(preprocessor):
     models = {
         "Logistic Regression": Pipeline([
             ("preprocess", preprocessor),
@@ -108,10 +109,16 @@ def get_models(preprocessor) -> Dict[str, Any]:
             ("preprocess", preprocessor),
             ("clf", KNeighborsClassifier(n_neighbors=7))
         ]),
+
         "Naive Bayes": Pipeline([
             ("preprocess", preprocessor),
+            ("to_dense", FunctionTransformer(
+                lambda x: x.toarray(),
+                accept_sparse=True
+            )),
             ("clf", GaussianNB())
         ]),
+
         "Random Forest": Pipeline([
             ("preprocess", preprocessor),
             ("clf", RandomForestClassifier(n_estimators=200, random_state=42))
