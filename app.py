@@ -1,45 +1,61 @@
-import streamlit as st
+import os
 import pandas as pd
-import joblib
-from sklearn.metrics import confusion_matrix, classification_report
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+import streamlit as st
 
-st.set_page_config(page_title="Adult Income Classification", layout="wide")
-st.title("Adult Income Classification – ML Model Comparison")
-
-scaler = joblib.load("model/scaler.pkl")
-
-model_name = st.selectbox(
-    "Select Model",
-    ["Logistic Regression", "Decision Tree", "KNN", "Naive Bayes", "Random Forest", "XGBoost"]
+from model.train_and_evaluate import (
+    run_experiment, load_dataset, evaluate_model,
+    ensure_dirs, save_model
 )
 
-model_files = {
-    "Logistic Regression": "model/logistic.pkl",
-    "Decision Tree": "model/decision_tree.pkl",
-    "KNN": "model/knn.pkl",
-    "Naive Bayes": "model/naive_bayes.pkl",
-    "Random Forest": "model/random_forest.pkl",
-    "XGBoost": "model/xgboost.pkl"
-}
+st.set_page_config(page_title="Adult Income Classification", layout="wide")
+st.title("Adult Income Classification – ML Assignment")
 
-model = joblib.load(model_files[model_name])
+st.markdown(
+    "This application trains multiple ML models on the **Adult Income dataset** "
+    "loaded dynamically via **OpenML**, compares performance, and allows prediction."
+)
 
-uploaded_file = st.file_uploader("Upload CSV (test data only)", type=["csv"])
+# Sidebar
+st.sidebar.header("Configuration")
+test_size = st.sidebar.slider("Test Size", 0.1, 0.4, 0.2, 0.05)
+seed = st.sidebar.number_input("Random Seed", value=42)
 
-if uploaded_file:
-    data = pd.read_csv(uploaded_file)
-    data.dropna(inplace=True)
+# Load data preview
+X, y = load_dataset()
+st.subheader("Dataset Preview")
+st.dataframe(X.head())
+st.caption(f"Samples: {X.shape[0]} | Features: {X.shape[1]}")
 
-    for col in data.select_dtypes(include="object"):
-        data[col] = data[col].astype("category").cat.codes
+# Train models
+cols, results, fitted, (X_test, y_test) = run_experiment(test_size, seed)
 
-    X = scaler.transform(data.drop("income", axis=1))
-    y_true = data["income"]
+# Metrics table
+st.subheader("Model Comparison")
+rows = []
+for name, res in results.items():
+    row = {"Model": name}
+    row.update(res.metrics)
+    rows.append(row)
 
-    y_pred = model.predict(X)
+df = pd.DataFrame(rows)
+st.dataframe(df)
 
-    st.subheader("Evaluation Metrics")
-    st.text(classification_report(y_true, y_pred))
+# Best model
+best_model_name = df.sort_values("AUC", ascending=False).iloc[0]["Model"]
+st.success(f"Best Model (by AUC): {best_model_name}")
 
-    st.subheader("Confusion Matrix")
-    st.write(confusion_matrix(y_true, y_pred))
+# Confusion Matrix
+res = results[best_model_name]
+fig, ax = plt.subplots()
+sns.heatmap(res.confusion, annot=True, fmt="d", cmap="Blues", ax=ax)
+st.pyplot(fig)
+
+st.text(res.report)
+
+# Save model
+ensure_dirs()
+save_model(fitted[best_model_name])
+st.sidebar.success("Best model saved as best_model.pkl")
