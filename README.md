@@ -1,11 +1,22 @@
-# Adult Income Classification – ML Assignment 2
+# Adult Income Classification – ML Assignment
 
-Predict whether income exceeds 50K per year using demographic attributes.
+## Problem Statement
+Predict whether a person earns more than $50K per year using demographic data.
 
-## Models
-Logistic Regression, Decision Tree, KNN, Naive Bayes, Random Forest, XGBoost
+## Dataset
+Adult Income dataset loaded dynamically from OpenML using scikit-learn.
 
-## Run Instructions
+## Models Used
+- Logistic Regression
+- Decision Tree
+- k-Nearest Neighbors
+- Naive Bayes
+- Random Forest
+- XGBoost
+
+## How to Run
+
+```bash
 pip install -r requirements.txt
-python train_models.py
+python model/train_and_evaluate.py
 streamlit run app.py
