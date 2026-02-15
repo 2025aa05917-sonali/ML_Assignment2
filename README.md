@@ -67,35 +67,29 @@ XGBoost (Ensemble)           0.8683     0.9253  0.7866      0.6431   0.7076
 d. Observations on Model Performance
 --------------------------------------------------
 
-ML Model Name: Logistic Regression
-Observation:
+Logistic Regression:
 Logistic Regression provides a strong baseline performance with good accuracy
 and AUC. It performs well on balanced metrics but has lower recall compared to
 ensemble models.
 
-ML Model Name: Decision Tree
-Observation:
+Decision Tree:
 Decision Tree achieves slightly better accuracy than Logistic Regression but is
 prone to overfitting. Performance is sensitive to depth and split parameters.
 
-ML Model Name: K-Nearest Neighbors
-Observation:
+K-Nearest Neighbors:
 kNN performs reasonably well but is computationally expensive and sensitive to
 feature scaling. It shows moderate performance across all metrics.
 
-ML Model Name: Naive Bayes
-Observation:
+Naive Bayes:
 Naive Bayes achieves very high recall, indicating strong ability to detect high-income
 cases. However, its low precision leads to many false positives, reducing overall
 accuracy.
 
-ML Model Name: Random Forest (Ensemble)
-Observation:
+Random Forest (Ensemble):
 Random Forest improves upon single decision trees by reducing overfitting.
 It achieves strong accuracy and AUC, making it a robust and reliable model.
 
-ML Model Name: XGBoost (Ensemble)
-Observation:
+XGBoost (Ensemble):
 XGBoost delivers the best overall performance across most evaluation metrics.
 It effectively captures complex patterns in the data and provides the highest
 accuracy, AUC, and F1 score among all models tested.
