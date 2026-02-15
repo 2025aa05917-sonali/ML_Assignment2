@@ -10,12 +10,22 @@ import joblib
 
 from sklearn.datasets import fetch_openml
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.preprocessing import (
+    StandardScaler,
+    OneHotEncoder,
+    FunctionTransformer
+)
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import (
-    accuracy_score, roc_auc_score, precision_score, recall_score,
-    f1_score, matthews_corrcoef, confusion_matrix, classification_report
+    accuracy_score,
+    roc_auc_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    matthews_corrcoef,
+    confusion_matrix,
+    classification_report
 )
 
 from sklearn.linear_model import LogisticRegression
@@ -23,7 +33,6 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.preprocessing import FunctionTransformer
 
 # Optional XGBoost
 try:
@@ -33,7 +42,7 @@ except Exception:
     _HAS_XGB = False
 
 
-# ---------------- Utility functions (FIX ADDED) ----------------
+# ---------------- Utility ----------------
 def ensure_dirs():
     Path("data").mkdir(exist_ok=True)
     Path("model/saved").mkdir(parents=True, exist_ok=True)
@@ -43,6 +52,12 @@ def save_model(model, path="model/saved/best_model.pkl"):
     ensure_dirs()
     joblib.dump(model, path)
     return path
+
+
+# ---------------- Sparse → Dense FIX ----------------
+def to_dense(X):
+    """Convert sparse matrix to dense (for GaussianNB only)."""
+    return X.toarray() if hasattr(X, "toarray") else X
 
 
 # ---------------- Evaluation container ----------------
@@ -58,22 +73,19 @@ def load_dataset():
     adult = fetch_openml(name="adult", version=2, as_frame=True)
     df = adult.frame.copy()
 
-    # Rename target column
     df.rename(columns={"class": "income"}, inplace=True)
 
-    # Handle missing values
     df.replace("?", pd.NA, inplace=True)
     df.dropna(inplace=True)
 
-    # FIX: Explicit label encoding (THIS FIXES YOUR ERROR)
+    # Explicit label encoding (required)
     df["income"] = df["income"].map({
         "<=50K": 0,
         ">50K": 1
     })
 
-    # Safety check
     if df["income"].isna().any():
-        raise ValueError("Income column contains unexpected values")
+        raise ValueError("Unexpected income labels found")
 
     X = df.drop("income", axis=1)
     y = df["income"].astype(int)
@@ -94,17 +106,19 @@ def build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
     )
 
 
-# ---------------- Models ----------------
+# ---------------- Models (FIXED) ----------------
 def get_models(preprocessor):
     models = {
         "Logistic Regression": Pipeline([
             ("preprocess", preprocessor),
             ("clf", LogisticRegression(max_iter=1000))
         ]),
+
         "Decision Tree": Pipeline([
             ("preprocess", preprocessor),
             ("clf", DecisionTreeClassifier(random_state=42))
         ]),
+
         "kNN": Pipeline([
             ("preprocess", preprocessor),
             ("clf", KNeighborsClassifier(n_neighbors=7))
@@ -113,15 +127,19 @@ def get_models(preprocessor):
         "Naive Bayes": Pipeline([
             ("preprocess", preprocessor),
             ("to_dense", FunctionTransformer(
-                lambda x: x.toarray(),
-                accept_sparse=True
+                to_dense,
+                accept_sparse=True,
+                validate=False
             )),
             ("clf", GaussianNB())
         ]),
 
         "Random Forest": Pipeline([
             ("preprocess", preprocessor),
-            ("clf", RandomForestClassifier(n_estimators=200, random_state=42))
+            ("clf", RandomForestClassifier(
+                n_estimators=200,
+                random_state=42
+            ))
         ])
     }
 
@@ -156,7 +174,10 @@ def evaluate_model(model, X_test, y_test) -> EvaluationResult:
     }
 
     try:
-        metrics["AUC"] = roc_auc_score(y_test, model.predict_proba(X_test)[:, 1])
+        metrics["AUC"] = roc_auc_score(
+            y_test,
+            model.predict_proba(X_test)[:, 1]
+        )
     except Exception:
         metrics["AUC"] = np.nan
 
@@ -172,7 +193,8 @@ def run_experiment(test_size=0.2, random_state=42):
     preprocessor = build_preprocessor(X)
 
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y,
+        X,
+        y,
         test_size=test_size,
         random_state=random_state,
         stratify=y
