@@ -53,13 +53,26 @@ class EvaluationResult:
 
 
 # ---------------- Load Adult Dataset ----------------
-def load_dataset() -> Tuple[pd.DataFrame, pd.Series]:
+def load_dataset():
     adult = fetch_openml(name="adult", version=2, as_frame=True)
     df = adult.frame.copy()
 
+    # Rename target column
     df.rename(columns={"class": "income"}, inplace=True)
+
+    # Handle missing values
     df.replace("?", pd.NA, inplace=True)
     df.dropna(inplace=True)
+
+    # FIX: Explicit label encoding (THIS FIXES YOUR ERROR)
+    df["income"] = df["income"].map({
+        "<=50K": 0,
+        ">50K": 1
+    })
+
+    # Safety check
+    if df["income"].isna().any():
+        raise ValueError("Income column contains unexpected values")
 
     X = df.drop("income", axis=1)
     y = df["income"].astype(int)
