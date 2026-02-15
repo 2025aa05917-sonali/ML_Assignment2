@@ -1,7 +1,8 @@
 """
 Author: Sonali Chavan
 Purpose:
-Training and evaluation pipeline for Adult Income classification.
+This module handles data loading, preprocessing, model training,
+and evaluation for the Adult Income classification task.
 """
 
 from dataclasses import dataclass
@@ -24,37 +25,38 @@ from sklearn.metrics import (
     f1_score,
     roc_auc_score,
     confusion_matrix,
-    classification_report,
-    matthews_corrcoef
+    classification_report
 )
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.naive_bayes import GaussianNB
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.ensemble import RandomForestClassifier
 
-# Optional XGBoost
+# ---------------- Optional XGBoost ----------------
 try:
     from xgboost import XGBClassifier
     HAS_XGB = True
-except Exception:
+except ImportError:
     HAS_XGB = False
 
 
-# ---------------- Utilities ----------------
+# ---------------- File Utilities ----------------
 def create_required_folders():
+    """Create folders required for saving trained models."""
     Path("model/saved_models").mkdir(parents=True, exist_ok=True)
 
 
-def persist_model(model, filename="best_model.pkl"):
+def persist_model(trained_model, filename="best_income_model.pkl"):
+    """Save the trained model to disk."""
     create_required_folders()
     path = Path("model/saved_models") / filename
-    joblib.dump(model, path)
+    joblib.dump(trained_model, path)
     return path
 
 
-# ---------------- Result Container ----------------
+# ---------------- Evaluation Result Container ----------------
 @dataclass
 class ModelEvaluation:
     scores: Dict[str, float]
@@ -62,16 +64,24 @@ class ModelEvaluation:
     report: str
 
 
-# ---------------- Dataset ----------------
+# ---------------- Dataset Loader ----------------
 def prepare_adult_income_data() -> Tuple[pd.DataFrame, pd.Series]:
+    """
+    Loads the Adult Income dataset from OpenML and prepares it
+    for supervised learning.
+    """
     dataset = fetch_openml(name="adult", version=2, as_frame=True)
     df = dataset.frame.copy()
 
     df.rename(columns={"class": "income_level"}, inplace=True)
+
     df.replace("?", pd.NA, inplace=True)
     df.dropna(inplace=True)
 
-    df["income_level"] = df["income_level"].map({"<=50K": 0, ">50K": 1})
+    df["income_level"] = df["income_level"].map({
+        "<=50K": 0,
+        ">50K": 1
+    })
 
     X = df.drop("income_level", axis=1)
     y = df["income_level"].astype(int)
@@ -80,32 +90,44 @@ def prepare_adult_income_data() -> Tuple[pd.DataFrame, pd.Series]:
 
 
 # ---------------- Preprocessing ----------------
-def build_feature_processor(X: pd.DataFrame) -> ColumnTransformer:
-    num_cols = X.select_dtypes(include=["int64", "float64"]).columns
-    cat_cols = X.select_dtypes(include=["object", "category"]).columns
+def build_feature_processor(features: pd.DataFrame) -> ColumnTransformer:
+    """
+    Builds preprocessing logic for numeric and categorical features.
+    """
+    numeric_cols = features.select_dtypes(include=["int64", "float64"]).columns
+    categorical_cols = features.select_dtypes(include=["object", "category"]).columns
 
     return ColumnTransformer(
         transformers=[
-            ("num", StandardScaler(), num_cols),
-            ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), cat_cols)
+            ("num", StandardScaler(), numeric_cols),
+            ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_cols)
         ]
     )
 
 
-# ---------------- Models ----------------
+# ---------------- Model Factory ----------------
 def define_models(preprocessor: ColumnTransformer):
+    """
+    Defines all 6 required ML models.
+    XGBoost is conditionally used with Gradient Boosting fallback.
+    """
+
     models = {
         "Logistic Regression": Pipeline([
             ("prep", preprocessor),
-            ("model", LogisticRegression(max_iter=1200))
+            ("model", LogisticRegression(max_iter=1200, C=0.8))
         ]),
 
         "Decision Tree": Pipeline([
             ("prep", preprocessor),
-            ("model", DecisionTreeClassifier(max_depth=10, random_state=21))
+            ("model", DecisionTreeClassifier(
+                max_depth=10,
+                min_samples_split=6,
+                random_state=21
+            ))
         ]),
 
-        "KNN": Pipeline([
+        "K-Nearest Neighbors": Pipeline([
             ("prep", preprocessor),
             ("model", KNeighborsClassifier(n_neighbors=7))
         ]),
@@ -118,13 +140,14 @@ def define_models(preprocessor: ColumnTransformer):
         "Random Forest": Pipeline([
             ("prep", preprocessor),
             ("model", RandomForestClassifier(
-                n_estimators=250,
+                n_estimators=280,
                 max_depth=14,
                 random_state=21
             ))
         ])
     }
 
+    # --- 6th Model: Boosted Ensemble ---
     if HAS_XGB:
         models["XGBoost"] = Pipeline([
             ("prep", preprocessor),
@@ -138,45 +161,57 @@ def define_models(preprocessor: ColumnTransformer):
                 random_state=21
             ))
         ])
+    else:
+        models["Gradient Boosting"] = Pipeline([
+            ("prep", preprocessor),
+            ("model", GradientBoostingClassifier(random_state=21))
+        ])
 
     return models
 
 
 # ---------------- Evaluation ----------------
 def assess_model(pipeline: Pipeline, X_test, y_test) -> ModelEvaluation:
-    prep = pipeline.named_steps["prep"]
-    clf = pipeline.named_steps["model"]
+    """
+    Evaluates a trained pipeline.
+    """
+    transformer = pipeline.named_steps["prep"]
+    classifier = pipeline.named_steps["model"]
 
-    X_t = prep.transform(X_test)
-    y_pred = clf.predict(X_t)
+    X_test_transformed = transformer.transform(X_test)
+    predictions = classifier.predict(X_test_transformed)
 
     scores = {
-        "Accuracy": accuracy_score(y_test, y_pred),
-        "Precision": precision_score(y_test, y_pred),
-        "Recall": recall_score(y_test, y_pred),
-        "F1": f1_score(y_test, y_pred),
-        "MCC": matthews_corrcoef(y_test, y_pred)
+        "Accuracy": accuracy_score(y_test, predictions),
+        "Precision": precision_score(y_test, predictions),
+        "Recall": recall_score(y_test, predictions),
+        "F1 Score": f1_score(y_test, predictions)
     }
 
-    if hasattr(clf, "predict_proba"):
+    if hasattr(classifier, "predict_proba"):
         scores["ROC-AUC"] = roc_auc_score(
-            y_test, clf.predict_proba(X_t)[:, 1]
+            y_test, classifier.predict_proba(X_test_transformed)[:, 1]
         )
 
     return ModelEvaluation(
         scores=scores,
-        confusion=confusion_matrix(y_test, y_pred),
-        report=classification_report(y_test, y_pred)
+        confusion=confusion_matrix(y_test, predictions),
+        report=classification_report(y_test, predictions)
     )
 
 
-# ---------------- Main Entry ----------------
+# ---------------- Training Pipeline ----------------
 def execute_training_pipeline(test_fraction=0.25, seed=21):
+    """
+    Complete ML workflow:
+    load → preprocess → train → evaluate
+    """
     X, y = prepare_adult_income_data()
     processor = build_feature_processor(X)
 
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y,
+        X,
+        y,
         test_size=test_fraction,
         random_state=seed,
         stratify=y
@@ -184,12 +219,12 @@ def execute_training_pipeline(test_fraction=0.25, seed=21):
 
     models = define_models(processor)
 
-    results = {}
-    trained = {}
+    evaluation_results = {}
+    trained_models = {}
 
     for name, pipeline in models.items():
         pipeline.fit(X_train, y_train)
-        results[name] = assess_model(pipeline, X_test, y_test)
-        trained[name] = pipeline
+        evaluation_results[name] = assess_model(pipeline, X_test, y_test)
+        trained_models[name] = pipeline
 
-    return results, trained
+    return evaluation_results, trained_models
