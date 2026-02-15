@@ -10,11 +10,7 @@ import joblib
 
 from sklearn.datasets import fetch_openml
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import (
-    StandardScaler,
-    OneHotEncoder,
-    FunctionTransformer
-)
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import (
@@ -54,12 +50,6 @@ def save_model(model, path="model/saved/best_model.pkl"):
     return path
 
 
-# ---------------- Sparse → Dense FIX ----------------
-def to_dense(X):
-    """Convert sparse matrix to dense (for GaussianNB only)."""
-    return X.toarray() if hasattr(X, "toarray") else X
-
-
 # ---------------- Evaluation container ----------------
 @dataclass
 class EvaluationResult:
@@ -69,16 +59,17 @@ class EvaluationResult:
 
 
 # ---------------- Load Adult Dataset ----------------
-def load_dataset():
+def load_dataset() -> Tuple[pd.DataFrame, pd.Series]:
     adult = fetch_openml(name="adult", version=2, as_frame=True)
     df = adult.frame.copy()
 
+    # Rename target
     df.rename(columns={"class": "income"}, inplace=True)
 
+    # Handle missing values
     df.replace("?", pd.NA, inplace=True)
     df.dropna(inplace=True)
 
-    # Explicit label encoding (required)
     df["income"] = df["income"].map({
         "<=50K": 0,
         ">50K": 1
@@ -93,7 +84,7 @@ def load_dataset():
     return X, y
 
 
-# ---------------- Preprocessing ----------------
+# ---------------- Preprocessing (FINAL FIX) ----------------
 def build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
     numeric_features = X.select_dtypes(include=["int64", "float64"]).columns
     categorical_features = X.select_dtypes(include=["object", "category"]).columns
@@ -101,13 +92,16 @@ def build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
     return ColumnTransformer(
         transformers=[
             ("num", StandardScaler(), numeric_features),
-            ("cat", OneHotEncoder(handle_unknown="ignore"), categorical_features),
+            ("cat", OneHotEncoder(
+                handle_unknown="ignore",
+                sparse_output=False
+            ), categorical_features),
         ]
     )
 
 
-# ---------------- Models (FIXED) ----------------
-def get_models(preprocessor):
+# ---------------- Models ----------------
+def get_models(preprocessor) -> Dict[str, Any]:
     models = {
         "Logistic Regression": Pipeline([
             ("preprocess", preprocessor),
@@ -126,11 +120,6 @@ def get_models(preprocessor):
 
         "Naive Bayes": Pipeline([
             ("preprocess", preprocessor),
-            ("to_dense", FunctionTransformer(
-                to_dense,
-                accept_sparse=True,
-                validate=False
-            )),
             ("clf", GaussianNB())
         ]),
 
