@@ -32,6 +32,19 @@ except Exception:
     _HAS_XGB = False
 
 
+# ---------------- Utility functions (FIX ADDED) ----------------
+def ensure_dirs():
+    Path("data").mkdir(exist_ok=True)
+    Path("model/saved").mkdir(parents=True, exist_ok=True)
+
+
+def save_model(model, path="model/saved/best_model.pkl"):
+    ensure_dirs()
+    joblib.dump(model, path)
+    return path
+
+
+# ---------------- Evaluation container ----------------
 @dataclass
 class EvaluationResult:
     metrics: Dict[str, float]
@@ -122,12 +135,9 @@ def evaluate_model(model, X_test, y_test) -> EvaluationResult:
         "MCC": matthews_corrcoef(y_test, y_pred),
     }
 
-    if hasattr(model, "predict_proba"):
-        try:
-            metrics["AUC"] = roc_auc_score(y_test, model.predict_proba(X_test)[:, 1])
-        except Exception:
-            metrics["AUC"] = np.nan
-    else:
+    try:
+        metrics["AUC"] = roc_auc_score(y_test, model.predict_proba(X_test)[:, 1])
+    except Exception:
         metrics["AUC"] = np.nan
 
     conf = confusion_matrix(y_test, y_pred)
@@ -142,7 +152,10 @@ def run_experiment(test_size=0.2, random_state=42):
     preprocessor = build_preprocessor(X)
 
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, random_state=random_state, stratify=y
+        X, y,
+        test_size=test_size,
+        random_state=random_state,
+        stratify=y
     )
 
     models = get_models(preprocessor)
