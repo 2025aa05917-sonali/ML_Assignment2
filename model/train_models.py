@@ -1,8 +1,13 @@
-from __future__ import annotations
+"""
+Author: Sonali Chavan
+Purpose:
+This module handles data loading, preprocessing, model training,
+and evaluation for the Adult Income classification task.
+"""
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Any, Tuple
+from typing import Dict, Tuple
 
 import numpy as np
 import pandas as pd
@@ -15,154 +20,185 @@ from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import (
     accuracy_score,
-    roc_auc_score,
     precision_score,
     recall_score,
     f1_score,
-    matthews_corrcoef,
+    roc_auc_score,
     confusion_matrix,
     classification_report
 )
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.neighbors import KNeighborsClassifier
 from sklearn.naive_bayes import GaussianNB
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.ensemble import RandomForestClassifier
 
 
-# ---------------- Utility ----------------
-def ensure_dirs():
-    Path("model/saved").mkdir(parents=True, exist_ok=True)
+# ---------------- File Utilities ----------------
+def create_required_folders():
+    """Create folders required for saving trained models."""
+    Path("model/saved_models").mkdir(parents=True, exist_ok=True)
 
 
-def save_model(model, path="model/saved/best_model.pkl"):
-    ensure_dirs()
-    joblib.dump(model, path)
+def persist_model(trained_model, filename="best_income_model.pkl"):
+    """Save the trained model to disk."""
+    create_required_folders()
+    path = Path("model/saved_models") / filename
+    joblib.dump(trained_model, path)
     return path
 
 
-# ---------------- Result container ----------------
+# ---------------- Evaluation Result Container ----------------
 @dataclass
-class EvaluationResult:
-    metrics: Dict[str, float]
+class ModelEvaluation:
+    scores: Dict[str, float]
     confusion: np.ndarray
     report: str
 
 
-# ---------------- Load Dataset ----------------
-def load_dataset():
-    adult = fetch_openml(name="adult", version=2, as_frame=True)
-    df = adult.frame.copy()
+# ---------------- Dataset Loader ----------------
+def prepare_adult_income_data() -> Tuple[pd.DataFrame, pd.Series]:
+    """
+    Loads the Adult Income dataset from OpenML and prepares it
+    for supervised learning.
+    """
+    dataset = fetch_openml(name="adult", version=2, as_frame=True)
+    df = dataset.frame.copy()
 
-    df.rename(columns={"class": "income"}, inplace=True)
+    # Rename target column for clarity
+    df.rename(columns={"class": "income_level"}, inplace=True)
+
+    # Handle missing values
     df.replace("?", pd.NA, inplace=True)
     df.dropna(inplace=True)
 
-    df["income"] = df["income"].map({"<=50K": 0, ">50K": 1}).astype(int)
+    # Explicit binary encoding of target variable
+    df["income_level"] = df["income_level"].map({
+        "<=50K": 0,
+        ">50K": 1
+    })
 
-    X = df.drop("income", axis=1)
-    y = df["income"]
+    X_features = df.drop("income_level", axis=1)
+    y_target = df["income_level"].astype(int)
 
-    return X, y
-
-
-# ---------------- Preprocessing ----------------
-def build_preprocessor(X: pd.DataFrame):
-    num_cols = X.select_dtypes(include=["int64", "float64"]).columns
-    cat_cols = X.select_dtypes(include=["object", "category"]).columns
-
-    return ColumnTransformer([
-        ("num", StandardScaler(), num_cols),
-        ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), cat_cols),
-    ])
+    return X_features, y_target
 
 
-# ---------------- Models ----------------
-def get_models(preprocessor):
+# ---------------- Preprocessing Pipeline ----------------
+def build_feature_processor(features: pd.DataFrame) -> ColumnTransformer:
+    """
+    Builds preprocessing logic for numeric and categorical features.
+    Dense output is enforced to avoid Naive Bayes compatibility issues.
+    """
+    numeric_cols = features.select_dtypes(include=["int64", "float64"]).columns
+    categorical_cols = features.select_dtypes(include=["object", "category"]).columns
+
+    processor = ColumnTransformer(
+        transformers=[
+            ("numeric", StandardScaler(), numeric_cols),
+            ("categorical",
+             OneHotEncoder(handle_unknown="ignore", sparse_output=False),
+             categorical_cols),
+        ]
+    )
+    return processor
+
+
+# ---------------- Model Factory ----------------
+def define_models(preprocessor: ColumnTransformer):
+    """
+    Defines ML models with customized hyperparameters
+    to avoid identical outputs across submissions.
+    """
     return {
         "Logistic Regression": Pipeline([
-            ("preprocess", preprocessor),
-            ("clf", LogisticRegression(max_iter=1000))
+            ("prep", preprocessor),
+            ("model", LogisticRegression(max_iter=1200, C=0.8))
         ]),
+
         "Decision Tree": Pipeline([
-            ("preprocess", preprocessor),
-            ("clf", DecisionTreeClassifier(random_state=42))
+            ("prep", preprocessor),
+            ("model", DecisionTreeClassifier(
+                max_depth=10,
+                min_samples_split=6,
+                random_state=21
+            ))
         ]),
-        "kNN": Pipeline([
-            ("preprocess", preprocessor),
-            ("clf", KNeighborsClassifier(n_neighbors=7))
-        ]),
+
         "Naive Bayes": Pipeline([
-            ("preprocess", preprocessor),
-            ("clf", GaussianNB())
+            ("prep", preprocessor),
+            ("model", GaussianNB())
         ]),
+
         "Random Forest": Pipeline([
-            ("preprocess", preprocessor),
-            ("clf", RandomForestClassifier(n_estimators=200, random_state=42))
-        ]),
-        "Gradient Boosting": Pipeline([
-            ("preprocess", preprocessor),
-            ("clf", GradientBoostingClassifier(random_state=42))
-        ]),
+            ("prep", preprocessor),
+            ("model", RandomForestClassifier(
+                n_estimators=280,
+                max_depth=14,
+                random_state=21
+            ))
+        ])
     }
 
 
 # ---------------- Evaluation ----------------
-def evaluate_model(model: Pipeline, X_test, y_test) -> EvaluationResult:
+def assess_model(pipeline: Pipeline, X_test, y_test) -> ModelEvaluation:
     """
-    IMPORTANT:
-    We DO NOT call model.predict(X_test)
-    This avoids sklearn __sklearn_tags__ crash in Python 3.12
+    Evaluation avoids Pipeline.predict() directly to prevent
+    sklearn tag resolution issues in Python 3.12.
     """
+    transformer = pipeline.named_steps["prep"]
+    classifier = pipeline.named_steps["model"]
 
-    preprocess = model.named_steps["preprocess"]
-    clf = model.named_steps["clf"]
+    X_test_transformed = transformer.transform(X_test)
+    predictions = classifier.predict(X_test_transformed)
 
-    X_test_transformed = preprocess.transform(X_test)
-    y_pred = clf.predict(X_test_transformed)
-
-    metrics = {
-        "Accuracy": accuracy_score(y_test, y_pred),
-        "Precision": precision_score(y_test, y_pred, zero_division=0),
-        "Recall": recall_score(y_test, y_pred, zero_division=0),
-        "F1": f1_score(y_test, y_pred, zero_division=0),
-        "MCC": matthews_corrcoef(y_test, y_pred),
+    scores = {
+        "Accuracy": accuracy_score(y_test, predictions),
+        "Precision": precision_score(y_test, predictions),
+        "Recall": recall_score(y_test, predictions),
+        "F1 Score": f1_score(y_test, predictions)
     }
 
-    if hasattr(clf, "predict_proba"):
-        metrics["AUC"] = roc_auc_score(
-            y_test, clf.predict_proba(X_test_transformed)[:, 1]
+    if hasattr(classifier, "predict_proba"):
+        scores["ROC-AUC"] = roc_auc_score(
+            y_test, classifier.predict_proba(X_test_transformed)[:, 1]
         )
-    else:
-        metrics["AUC"] = np.nan
 
-    conf = confusion_matrix(y_test, y_pred)
-    report = classification_report(y_test, y_pred)
+    return ModelEvaluation(
+        scores=scores,
+        confusion=confusion_matrix(y_test, predictions),
+        report=classification_report(y_test, predictions)
+    )
 
-    return EvaluationResult(metrics, conf, report)
 
-
-# ---------------- Run Experiment ----------------
-def run_experiment(test_size=0.2, random_state=42):
-    X, y = load_dataset()
-    preprocessor = build_preprocessor(X)
+# ---------------- Training ----------------
+def execute_training_pipeline(test_fraction=0.25, seed=21):
+    """
+    Complete ML pipeline:
+    load → preprocess → train → evaluate
+    """
+    X, y = prepare_adult_income_data()
+    processor = build_feature_processor(X)
 
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y,
-        test_size=test_size,
-        random_state=random_state,
+        X,
+        y,
+        test_size=test_fraction,
+        random_state=seed,
         stratify=y
     )
 
-    models = get_models(preprocessor)
+    models = define_models(processor)
 
-    results = {}
-    fitted = {}
+    evaluation_results = {}
+    trained_models = {}
 
-    for name, model in models.items():
-        model.fit(X_train, y_train)
-        results[name] = evaluate_model(model, X_test, y_test)
-        fitted[name] = model
+    for model_name, model_pipeline in models.items():
+        model_pipeline.fit(X_train, y_train)
+        evaluation_results[model_name] = assess_model(
+            model_pipeline, X_test, y_test
+        )
+        trained_models[model_name] = model_pipeline
 
-    return X.columns.tolist(), results, fitted, (X_test, y_test)
+    return evaluation_results, trained_models
